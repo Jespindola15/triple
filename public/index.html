@@ -1,0 +1,231 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="description" content="Básquet arcade pixelado con los equipos de la NBA, torneos y salas online.">
+<meta name="theme-color" content="#0b1712">
+<title>Triple Pixel</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Silkscreen:wght@400;700&family=VT323&display=swap">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Crect width='16' height='16' fill='%23c98c52'/%3E%3Ccircle cx='8' cy='8' r='5' fill='%23e8701f'/%3E%3Crect x='3' y='7' width='10' height='1' fill='%233a1a08'/%3E%3Crect x='7' y='3' width='1' height='10' fill='%233a1a08'/%3E%3C/svg%3E">
+<style>html,body{margin:0;padding:0}:root{padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}img{max-width:100%}[hidden]{display:none!important}</style>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<div id="app">
+  <canvas id="screen" aria-label="Campo de juego"></canvas>
+
+  <div id="hud" hidden>
+    <div class="hud-top" id="hudStadium">ESTADIO</div>
+    <div class="hud-row">
+      <div class="hud-team"><canvas class="hud-badge" id="chipA" width="12" height="14"></canvas><span id="abbrA">ARG</span></div>
+      <div class="hud-score" id="hudScore"><span id="scoreA">0</span><span class="sep">-</span><span id="scoreB">0</span></div>
+      <div class="hud-team"><span id="abbrB">BRA</span><canvas class="hud-badge" id="chipB" width="12" height="14"></canvas></div>
+      <div class="hud-clock" id="clock">3:00</div>
+      <div class="hud-agg" id="agg" hidden></div>
+    </div>
+  </div>
+  <div id="banner" hidden><div class="big" id="bannerBig"></div><div class="small" id="bannerSmall"></div></div>
+  <div id="hint" hidden>Esc pausa · M sonido</div>
+
+  <!-- controles táctiles (celular / tablet) -->
+  <div id="touch" hidden>
+    <div id="tzone" aria-hidden="true"></div>
+    <div id="tjoy" hidden><div id="tknob"></div></div>
+    <div id="tbtns">
+      <button type="button" class="tb tb-kick" data-b="kick">TIRAR</button>
+      <button type="button" class="tb tb-lob" data-b="lob">ALLEY</button>
+      <button type="button" class="tb tb-slide" data-b="slide">ROBAR</button>
+      <button type="button" class="tb tb-sprint" data-b="sprint">TURBO</button>
+      <button type="button" class="tb tb-skill" data-b="skill">GIRO</button>
+      <button type="button" class="tb tb-pass" data-b="pass">PASE</button>
+      <button type="button" class="tb tb-swap" data-b="swap" hidden>CAMBIO</button>
+    </div>
+    <button type="button" id="tpause" aria-label="Pausa">II</button>
+    <button type="button" id="tchat" aria-label="Chat" hidden>CHAT</button>
+    <div id="chatPick" hidden></div>
+  </div>
+  <div id="chatFeed" hidden></div>
+  <div id="rotate" hidden>Girá el celular para jugar más cómodo</div>
+
+  <!-- MENÚ -->
+  <section class="screen" id="menu">
+    <div class="wrap">
+      <div class="title-row">
+        <div>
+          <h1>TRIPLE<span class="accent">·</span>PIXEL</h1>
+          <p class="tag">Básquet arcade con los equipos de la NBA. Vos sos tu jugador.</p>
+        </div>
+        <p class="small-note">Versión 1.0 · local y online</p>
+      </div>
+
+      <div class="modebar"><div class="seg mode" id="optMode"></div><button class="btn-cont" id="btnContTour" hidden></button></div>
+
+      <div class="panel online" id="online" hidden></div>
+      <div class="grid" id="mgrid">
+        <div class="panel" id="side0"></div>
+
+        <div class="panel cfg">
+          <div id="tourPick" hidden>
+            <p class="label">Torneo</p>
+            <div class="seg" id="optTour"></div>
+          </div>
+          <div>
+            <p class="label">Formato</p>
+            <div class="seg" id="optFormat"></div>
+          </div>
+          <div>
+            <p class="label">Duración</p>
+            <div class="seg" id="optDur"></div>
+          </div>
+          <div>
+            <p class="label">Gana quien llega a</p>
+            <div class="seg" id="optCap"></div>
+          </div>
+          <div id="tiePick">
+            <p class="label">Si terminan empatados</p>
+            <div class="seg" id="optTie"></div>
+          </div>
+          <div>
+            <p class="label">Nivel de la CPU</p>
+            <div class="seg" id="optDiff"></div>
+          </div>
+          <details class="more" id="moreOpts"><summary>Más opciones</summary><div class="mopts">
+          <div>
+            <p class="label">Estadísticas</p>
+            <div class="seg" id="optStats"></div>
+          </div>
+          <div>
+            <p class="label">Repetición de canastas</p>
+            <div class="seg" id="optReplay"></div>
+          </div>
+          <div hidden>
+            <p class="label">Faltas y tiros libres</p>
+            <div class="seg" id="optFouls"></div>
+          </div>
+          <div>
+            <p class="label">Cambio de jugador</p>
+            <div class="seg" id="optSwap"></div>
+          </div>
+          <div>
+            <p class="label">Cámara en 3 vs 3</p>
+            <div class="seg" id="optCam"></div>
+          </div>
+          <div id="vibPick" hidden>
+            <p class="label">Vibración</p>
+            <div class="seg" id="optVib"></div>
+          </div>
+          <div>
+            <p class="label">Ayuda en los pases</p>
+            <div class="seg" id="optAssist"></div>
+          </div>
+          </div></details>
+          <button class="play" id="btnPlay">JUGAR</button>
+          <p class="small-note" id="tieNote">Sin laterales: la pelota rebota en los costados.</p>
+        </div>
+
+        <div class="panel" id="side1"></div>
+      </div>
+
+      <details class="panel helpbox" id="helpBox"><summary>Controles y cómo se juega</summary>
+      <div class="controls">
+        <div>
+          <h3 style="color:var(--p1)">JUGADOR 1</h3>
+          <dl>
+            <dt><kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd></dt><dd>moverte (con la pelota, picás)</dd>
+            <dt><kbd>Espacio</kbd></dt><dd>con la pelota: mantené y soltá en la zona verde para tirar. Sin la pelota: saltar (tapar o rebotear)</dd>
+            <dt><kbd>F</kbd></dt><dd>pase al compañero que marca la flechita · sin la pelota, mantené para marcar al que la tiene</dd>
+            <dt><kbd>E</kbd></dt><dd>pase alto / alley-oop (si tu compañero va al aro, la agarra en el aire y la vuelca)</dd>
+            <dt><kbd>Q</kbd></dt><dd>manotazo para robar</dd>
+            <dt><kbd>R</kbd></dt><dd>giro: salís para un costado protegiendo la pelota</dd>
+            <dt><kbd>Shift izq</kbd></dt><dd>turbo</dd>
+            <dt><kbd>C</kbd></dt><dd>cambiar de jugador (si está activado)</dd>
+          </dl>
+        </div>
+        <div>
+          <h3 style="color:var(--p2)">JUGADOR 2</h3>
+          <dl>
+            <dt><kbd>←</kbd><kbd>↑</kbd><kbd>↓</kbd><kbd>→</kbd></dt><dd>moverte</dd>
+            <dt><kbd>Enter</kbd> / <kbd>Num 0</kbd></dt><dd>tirar / saltar</dd>
+            <dt><kbd>Ñ</kbd> / <kbd>Num 5</kbd></dt><dd>pase / marcar</dd>
+            <dt><kbd>Shift der</kbd> / <kbd>Num .</kbd></dt><dd>alley-oop</dd>
+            <dt><kbd>Ctrl der</kbd> / <kbd>Num 2</kbd></dt><dd>robar</dd>
+            <dt><kbd>Num +</kbd> / <kbd>Num 3</kbd></dt><dd>giro</dd>
+            <dt><kbd>/</kbd> / <kbd>Num 1</kbd></dt><dd>turbo</dd>
+            <dt><kbd>,</kbd> / <kbd>Num 6</kbd></dt><dd>cambiar de jugador</dd>
+          </dl>
+        </div>
+        <div>
+          <h3>CÓMO SE JUEGA</h3>
+          <dl>
+            <dt>Tiro</dt><dd>mantené tirar: el anillo se llena; soltá en la zona verde para un tiro perfecto. Cuanto más cerca del aro y más libre estés, más entra. Detrás de la línea de triple vale 3</dd>
+            <dt>Bandeja y volcada</dt><dd>cerca del aro, apretá tirar corriendo hacia el aro. Con turbo, la volcás</dd>
+            <dt>Defensa</dt><dd>mantené PASE para quedarte entre tu rival y el aro. Saltá cuando tira para taparlo (si lo tapás encima de todo, mejor). Q para robar: si estás de frente y cerca, funciona más</dd>
+            <dt>Rebote</dt><dd>si el tiro pega en el aro, la pelota queda viva: saltá para agarrarla arriba</dd>
+            <dt>Posesión</dt><dd>tenés 20 segundos para tirar: si no, la pelota pasa al rival. No hay laterales: la pelota rebota en los costados</dd>
+            <dt>Joystick</dt><dd>A tirar · Y pase · X alley · B robar · RT turbo · LB cambio · Start pausa</dd>
+            <dt>Celular</dt><dd>joystick a la izquierda y botones a la derecha</dd>
+          </dl>
+        </div>
+      </div>
+      </details>
+    </div>
+  </section>
+
+  <!-- PAUSA -->
+  <section class="screen" id="pause" hidden>
+    <div class="panel modal">
+      <h2>PAUSA</h2>
+      <p class="small-note" id="pauseNote" hidden>El juego dejó de recibir el teclado (por ejemplo, al hacer clic fuera de la cancha). Tocá «Seguir jugando» para retomar.</p>
+      <button class="btn primary" id="btnResume">Seguir jugando</button>
+      <button class="btn" id="btnRestart">Reiniciar partido</button>
+      <button class="btn" id="btnGif">Guardar última canasta (GIF)</button>
+      <p class="small-note gif-note" id="gifNote"></p>
+      <button class="btn" id="btnMenu">Volver al menú</button>
+      <button class="btn" id="btnFull" hidden>Pantalla completa</button>
+      <div class="keytest">
+        <p class="label">Probador de teclas</p>
+        <p class="small-note">Apretá W, A, S, D, Espacio… y mirá qué recibe el juego.</p>
+        <pre id="keyTest">(todavía no apretaste ninguna tecla)</pre>
+      </div>
+    </div>
+  </section>
+
+  <!-- TORNEO -->
+  <section class="screen" id="tour" hidden>
+    <div class="wrap">
+      <div class="title-row">
+        <div><h1 id="tourTitle">MUNDIAL</h1><p class="tag" id="tourStage"></p></div>
+        <button class="btn-cont" id="btnTourMenu">Menú principal</button>
+      </div>
+      <div class="tgrid">
+        <div class="panel tnext" id="tourNext"></div>
+        <div class="panel" id="tourTables"></div>
+        <div class="panel tfix" id="tourFixture"></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- FINAL -->
+  <section class="screen" id="end" hidden>
+    <div class="panel modal">
+      <h2 id="endTitle">FINAL</h2>
+      <div class="final"><span id="endA">ARG</span><span class="num" id="endScore">0 - 0</span><span id="endB">BRA</span></div>
+      <div class="scorers" id="endScorers"></div>
+      <table class="stat-table" id="endStats"></table>
+      <div id="endFig" class="end-fig" hidden></div>
+      <table class="stat-table pstats" id="endPlayers"></table>
+      <button class="btn primary" id="btnRematch">Revancha</button>
+      <button class="btn" id="btnGif2">Guardar última canasta (GIF)</button>
+      <p class="small-note gif-note"></p>
+      <button class="btn" id="btnEndMenu">Volver al menú</button>
+    </div>
+  </section>
+</div>
+<script src="config.js"></script>
+<script src="game.js"></script>
+
+</body>
+</html>
