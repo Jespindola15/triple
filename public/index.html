@@ -27,6 +27,7 @@
       <div class="hud-agg" id="agg" hidden></div>
     </div>
   </div>
+  <div id="intro" hidden></div>
   <div id="banner" hidden><div class="big" id="bannerBig"></div><div class="small" id="bannerSmall"></div></div>
   <div id="hint" hidden>Esc pausa · M sonido</div>
 
@@ -101,9 +102,13 @@
             <p class="label">Repetición de canastas</p>
             <div class="seg" id="optReplay"></div>
           </div>
-          <div hidden>
+          <div>
             <p class="label">Faltas y tiros libres</p>
             <div class="seg" id="optFouls"></div>
+          </div>
+          <div id="mousePick">
+            <p class="label">Apuntar con el mouse (P1)</p>
+            <div class="seg" id="optMouse"></div>
           </div>
           <div>
             <p class="label">Cambio de jugador</p>
@@ -135,6 +140,7 @@
           <h3 style="color:var(--p1)">JUGADOR 1</h3>
           <dl>
             <dt><kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd></dt><dd>moverte (con la pelota, picás)</dd>
+            <dt>Mouse</dt><dd>click izquierdo: tirar (mantené y soltá en verde) o saltar · click derecho: pase al compañero que señalás con la mira</dd>
             <dt><kbd>Espacio</kbd></dt><dd>con la pelota: mantené y soltá en la zona verde para tirar. Sin la pelota: saltar (tapar o rebotear)</dd>
             <dt><kbd>F</kbd></dt><dd>pase al compañero que marca la flechita · sin la pelota, mantené para marcar al que la tiene</dd>
             <dt><kbd>E</kbd></dt><dd>pase alto / alley-oop (si tu compañero va al aro, la agarra en el aire y la vuelca)</dd>
@@ -164,6 +170,8 @@
             <dt>Bandeja y volcada</dt><dd>cerca del aro, apretá tirar corriendo hacia el aro. Con turbo, la volcás</dd>
             <dt>Defensa</dt><dd>mantené PASE para quedarte entre tu rival y el aro. Saltá cuando tira para taparlo (si lo tapás encima de todo, mejor). Q para robar: si estás de frente y cerca, funciona más</dd>
             <dt>Rebote</dt><dd>si el tiro pega en el aro, la pelota queda viva: saltá para agarrarla arriba</dd>
+            <dt>Faltas</dt><dd>si te pegan al tirar (o el defensor salta o manotea encima tuyo), son tiros libres: 2 o 3 si erraste, 1 si la metiste. Se tiran igual, con el medidor. Se pueden sacar en Más opciones</dd>
+            <dt>En llamas</dt><dd>si metés 3 seguidas, quedás en llamas: corrés un poco más y tirás mejor, hasta que el rival meta</dd>
             <dt>Posesión</dt><dd>tenés 20 segundos para tirar: si no, la pelota pasa al rival. No hay laterales: la pelota rebota en los costados</dd>
             <dt>Joystick</dt><dd>A tirar · Y pase · X alley · B robar · RT turbo · LB cambio · Start pausa</dd>
             <dt>Celular</dt><dd>joystick a la izquierda y botones a la derecha</dd>
