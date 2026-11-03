@@ -101,7 +101,7 @@ const SIM=(()=>{
  const DT=1/60,PR=0.4,BR=0.13,KR=0.85,GRAV=9.8,HN=32,RIM_H=3.05,RIM_R=0.23,HOOP_OFF=1.58,BOARD_OFF=1.2,GD=1.5,BAR=3.9,RC=0;
  const FORMATS={1:{L:20,W:12,R3:5.4,G:1.8},2:{L:24,W:13.5,R3:6.0,G:1.8},3:{L:28,W:15,R3:6.75,G:1.8}};
  const SC=20; // reloj de posesión
- const PERF=[0.76,0.86]; // zona verde del medidor (tiro perfecto)
+ const PERF=[0.73,0.89]; // zona verde del medidor (tiro perfecto)
  const NOIN={mx:0,my:0,kick:false,lob:false,sprint:false,dive:false,slide:false,skill:false,pass:false,sx:0,sy:0};
  const clamp=(v,a,b)=>v<a?a:v>b?b:v;
  const sf=s=>clamp((s-75)/22,-1,1);
@@ -1831,7 +1831,7 @@ function ringPx(c,cx,cy,rx,ry,col,dotted,from,to){
  for(let i=Math.floor(from*n);i<=Math.ceil(to*n);i++){const a=-Math.PI/2+i/n*Math.PI*2,x=Math.round(cx+Math.cos(a)*rx),y=Math.round(cy+Math.sin(a)*ry);if(x===lx&&y===ly)continue;lx=x;ly=y;k++;if(dotted&&k%2)continue;c.fillRect(x,y,1,1);}
 }
 // medidor de potencia circular alrededor de los pies: amarillo, zona verde = perfecto, rojo = se eleva
-function drawChargeRing(c,sx,sy,p,rx,ry){
+function drawChargeRing_fut(c,sx,sy,p,rx,ry){
  rx+=4;ry+=3;
  for(const d of [-1,0,1,2])ringPx(c,sx,sy+d,rx+(d<0?1:0),ry,'rgba(0,0,0,0.6)',false);
  ringPx(c,sx,sy,rx,ry,'rgba(125,255,79,0.35)',false,0.76,0.86);
@@ -2053,6 +2053,12 @@ function penNextKick(P){
   cam:hs||!hk?'shooter':'keeper',reticle:!!hs&&!hk,run:0,runDur:0.9+P.r()*0.35,prevKick:true,prevDive:true};
  sfx({t:'whistle'});
 }
+// dónde está el mouse sobre el plano del arco (en metros: x lateral, y altura)
+function penMouseGoal(P){
+ if(!mouseOn()||!P.cam||!P.xf)return null;const cam=P.cam,xf=P.xf;
+ const px=(mouse.x-xf.ox)/xf.sc,py=(mouse.y-xf.oy)/xf.sc,d=(PEN.D-cam.z)*cam.dir;if(d<0.15)return null;
+ return{x:cam.x+(px-cam.cx)*d/(cam.f*cam.dir),y:cam.y-(py-cam.hy)*d/cam.f};
+}
 function penKeeperInput(P,c){
  if(!c.hk)return;
  const inp=readHuman(c.hk);
@@ -2061,11 +2067,14 @@ function penKeeperInput(P,c){
   if(c.diveClock!=null&&P.clock-c.diveClock<0.12&&c.dive.dx===0&&c.dive.dy===0){let dx=Math.sign(Math.round(inp.mx)),dy=-Math.sign(Math.round(inp.my));if(c.cam==='keeper')dx=-dx;if(dx||dy){c.dive.dx=dx;c.dive.dy=dy;}}
   return;
  }
- const press=inp.kick&&!c.prevDive;c.prevDive=inp.kick;
+ const mg=c.hk===1?penMouseGoal(P):null,kk=inp.kick||(mg&&mouse.l);
+ const press=kk&&!c.prevDive;c.prevDive=kk;
  if(press){
   let dx=Math.sign(Math.round(inp.mx)),dy=-Math.sign(Math.round(inp.my));
   // vista del arquero: su izquierda es la derecha del pateador
   if(c.cam==='keeper')dx=-dx;
+  // con mouse: se tira hacia donde está la mira (al medio si está cerca del centro; arriba si está alta)
+  if(mg){dx=Math.abs(mg.x)<0.75?0:Math.sign(mg.x);dy=mg.y>1.35?1:0;}
   c.dive={dx,dy,t:0};c.diveClock=P.clock;
   sfx({t:'dive'});
   if(c.kickClock!=null)c.dive.t=P.clock-c.kickClock;
@@ -2094,8 +2103,9 @@ function penUpdate(dt0){
  if(c.phase==='aim'||c.phase==='run'){
   penKeeperInput(P,c);
   if(c.hs){
-   const inp=readHuman(c.hs);
-   c.aim.x=SIM.clamp(c.aim.x+inp.mx*3*dt,-4.6,4.6);c.aim.y=SIM.clamp(c.aim.y-inp.my*2.4*dt,0,3.2);
+   const inp=readHuman(c.hs),mg=c.hs===1?penMouseGoal(P):null;
+   if(mg){c.aim.x=SIM.clamp(mg.x,-4.6,4.6);c.aim.y=SIM.clamp(mg.y,0,3.2);inp.kick=inp.kick||mouse.l;}
+   else{c.aim.x=SIM.clamp(c.aim.x+inp.mx*3*dt,-4.6,4.6);c.aim.y=SIM.clamp(c.aim.y-inp.my*2.4*dt,0,3.2);}
    if(c.phase==='aim'){if(inp.kick&&!c.prevKick){c.phase='run';c.charge=0;}}
    else{c.charge+=dt;c.run=Math.min(1,c.charge/0.8);if(!inp.kick||c.charge>=1.4)penKick(P);}
    c.prevKick=inp.kick;
@@ -2527,7 +2537,7 @@ function renderPens(dt,W,H){
  if(!c||c.cam==='shooter'){
   const run=c?c.run:0,kicking=c&&(c.phase==='flight'||c.phase==='after');
   const bob=c&&c.phase==='run'?Math.abs(Math.sin(t*16))*0.06:0;
-  const cam={x:0.15-run*0.15,y:1.55+bob-run*0.22,z:-2.7+run*1.55,dir:1,f:505,hy:150,cx:PW/2};
+  const cam=P.cam={x:0.15-run*0.15,y:1.55+bob-run*0.22,z:-2.7+run*1.55,dir:1,f:505,hy:150,cx:PW/2};
   if(kicking)zoom=1+Math.max(0,0.06-(c.phase==='flight'?Math.abs(c.ft-0.05):1)*0.3);
   drawSky(g,cam.hy);
   const by=pproj(cam,0,0.95,PEN.D+4.2),byb=pproj(cam,0,0,PEN.D+4.2);
@@ -2558,7 +2568,7 @@ function renderPens(dt,W,H){
  }else{
   const k=keeperState(c,P);
   const camY=1.62+(k.side?(k.dy>0?0.55:k.dy<0?-1.05:-0.5)*k.e:(k.dy>0?0.55*k.e:k.dy<0?-0.8*k.e:0));
-  const cam={x:k.kx,y:Math.max(0.32,camY),z:PEN.D+0.3,dir:-1,f:445,hy:160,cx:PW/2};
+  const cam=P.cam={x:k.kx,y:Math.max(0.32,camY),z:PEN.D+0.3,dir:-1,f:445,hy:160,cx:PW/2};
   drawSky(g,cam.hy);
   const by=pproj(cam,0,0.95,-9),bl=pproj(cam,18,0.95,-9),br=pproj(cam,-18,0,-9);
   drawCrowd(g,0,by?by[1]:cam.hy-18,t,cheer);drawLights(g,t);
@@ -2589,7 +2599,11 @@ function renderPens(dt,W,H){
  const roll=c&&c.cam==='keeper'?(P.roll||0):0;
  if(roll||zoom!==1){sctx.save();sctx.translate(W/2,H/2);sctx.rotate(roll);const z=(roll?1.4:1)*zoom;sctx.drawImage(pbuf,-PW*sc*z/2,-PH*sc*z/2,PW*sc*z,PH*sc*z);sctx.restore();}
  else sctx.drawImage(pbuf,ox,oy,Math.round(PW*sc),Math.round(PH*sc));
+ P.xf={sc,ox,oy};
  penOverlay(dt,W,H,sc,ox,oy);
+ if(mouseOn()){const mx0=Math.round(mouse.x),my0=Math.round(mouse.y),u=Math.max(2,Math.round(sc));
+  sctx.fillStyle='rgba(0,0,0,.7)';sctx.fillRect(mx0-5*u,my0-u,10*u+u,3*u);sctx.fillRect(mx0-u,my0-5*u,3*u,10*u+u);
+  sctx.fillStyle='#3fd8ff';sctx.fillRect(mx0-5*u,my0,4*u,u);sctx.fillRect(mx0+2*u,my0,4*u,u);sctx.fillRect(mx0,my0-5*u,u,4*u);sctx.fillRect(mx0,my0+2*u,u,4*u);}
 }
 function spawnConfettiPens(kit){for(let i=0;i<260;i++)fx.confetti.push({x:Math.random()*PW,y:Math.random()*120,vx:(Math.random()-0.5)*40,vy:-(10+Math.random()*50),col:Math.random()<0.5?kit.p:kit.s,t:0,ttl:2.4+Math.random()*1.8});}
 function penOverlay(dt,W,H,sc,ox,oy){
@@ -2609,7 +2623,7 @@ function penOverlay(dt,W,H,sc,ox,oy){
  if(c&&P.phase!=='final'&&P.phase!=='intro'){
   sctx.fillText(`Patea ${c.shooter.n} (${P.T[c.team].abbr}) · ataja ${c.gk.n}`,W/2,top+fs*2.1);
   let help='';
-  const mv=sl=>sl===1&&touch.on?'el joystick':sl===1?'WASD':'las flechas',kb=sl=>sl===1&&touch.on?'PATEAR':sl===1?'Espacio':'Enter';
+  const mv=sl=>sl===1&&mouseOn()?'el mouse':sl===1&&touch.on?'el joystick':sl===1?'WASD':'las flechas',kb=sl=>sl===1&&mouseOn()?'el click':sl===1&&touch.on?'PATEAR':sl===1?'Espacio':'Enter';
   if(c.hs&&(c.phase==='aim'||c.phase==='run'))help=c.reticle?'Apuntá con '+mv(c.hs)+' · mantené '+kb(c.hs)+' para correr y cargar, soltá para patear':'Apuntá a ciegas con '+mv(c.hs)+' (empieza al medio) · mantené y soltá '+kb(c.hs);
   else if(c.hk&&!c.dive&&c.phase!=='after')help='Elegí lado con '+mv(c.hk)+' y tocá '+kb(c.hk)+' para tirarte · si te tirás antes de la patada, te ven';
   if(help){const hy2=oy+PH*sc-fs*1.1;const tw=sctx.measureText(help).width;sctx.fillStyle='rgba(5,11,8,0.8)';sctx.fillRect(W/2-tw/2-10,hy2-fs*0.6,tw+20,fs*1.2);sctx.fillStyle='#d8e6dc';sctx.fillText(help,W/2,hy2);}
@@ -2737,10 +2751,28 @@ function drawBadge(cv,kit){
 function hudGoal(team){const hd=$('hud');hd.style.setProperty('--fc',game.kits[team].p);hd.classList.remove('flash');void hd.offsetWidth;hd.classList.add('flash');}
 function hintText_fut(){
  if(touch.on&&setup.sides.some(sd=>sd.ctrl==='P1'))return'Joystick para moverte · PATEAR: mantené para cargar · FILI + dirección: filigrana';
- const h=[];setup.sides.forEach(sd=>{const gk=sd.player===-1&&setup.format>=2;if(sd.ctrl==='P1')h.push(gk?'P1 arquero: WASD · Espacio sacar/patear · E agarrar (en el área) · Q estirada':(mouseOn()?'P1: WASD · mouse apuntar · click patear · click der. globo':'P1: WASD · Espacio patear · E globo')+' · F pase (mantenido: presionar) · Q barrida · R filigrana · Shift'+(setup.swap&&setup.swap!=='no'?' · C cambio':''));if(sd.ctrl==='P2')h.push(gk?'P2 arquero: Flechas · Enter sacar · Shift der agarrar · Ctrl der estirada':'P2: Flechas · Enter patear · Ñ pase · Shift der · Ctrl der'+(setup.swap&&setup.swap!=='no'?' · coma cambio':''));});
+ const h=[];setup.sides.forEach(sd=>{const gk=sd.player===-1&&setup.format>=2;if(sd.ctrl==='P1')h.push(gk?(mouseOn()||(setup.mouse!==false&&!touch.on)?'P1 arquero: WASD moverte · atajás solo dentro del área · click: estirada hacia la mira · con la pelota, click saca hacia la mira (mantené = más fuerte) · click der. de volea':'P1 arquero: WASD · Espacio sacar/patear · E agarrar (en el área) · Q estirada'):(mouseOn()?'P1: WASD · mouse apuntar · click patear · click der. globo':'P1: WASD · Espacio patear · E globo')+' · F pase (mantenido: presionar) · Q barrida · R filigrana · Shift'+(setup.swap&&setup.swap!=='no'?' · C cambio':''));if(sd.ctrl==='P2')h.push(gk?'P2 arquero: Flechas · Enter sacar · Shift der agarrar · Ctrl der estirada':'P2: Flechas · Enter patear · Ñ pase · Shift der · Ctrl der'+(setup.swap&&setup.swap!=='no'?' · coma cambio':''));});
  h.push('Esc pausa · M sonido');return h.join('   |   ');
 }
 // Cambio de jugador: con botón pasás al compañero más cerca de la pelota; en automático pasa solo cuando otro está claramente más cerca
+
+// Pase a un compañero de la CPU: si jugás solo en tu equipo (o con la CPU), pasás a manejar al que la recibe
+function passSwitch(s){
+ if(setup.passSwitch===false)return;
+ for(const e of s.events){
+  if(e.t==='kick'&&e.id!=null&&!e.shot&&!e.header){const c=game.ctrls[e.id],p=s.players[e.id];if(c&&c.type==='human'&&!c.peer&&p&&p.role!=='gk')game.passSw={from:e.id,team:p.team,k:s.tick};}
+ }
+ const P=game.passSw;if(!P)return;
+ if(s.tick-P.k>240||s.phase==='goal'){game.passSw=null;return;}
+ const lt=s.ball.lastTouch;if(lt<0||lt===P.from)return;
+ game.passSw=null;
+ const q=s.players[lt],p=s.players[P.from];
+ if(!q||!p||q.team!==P.team||q.role==='gk')return;
+ const cq=game.ctrls[q.id],cp=game.ctrls[P.from];
+ if(!cq||cq.type!=='ai'||!cp||cp.type!=='human')return;
+ game.ctrls[q.id]=cp;game.ctrls[P.from]={type:'ai',diff:'normal'};p.charging=false;
+ popup('▼',q.x,q.y,cp.slot===1?'#3fd8ff':'#ff5aa8');
+}
 function doSwaps(s,inputs){
  const b=s.ball,sw=game.swapPrev||(game.swapPrev={}),cd=game.swapCd||(game.swapCd={});
  for(const p of s.players){const c=game.ctrls[p.id];if(!c||c.type!=='human'||p.role==='gk'||c.peer)continue;
@@ -2898,7 +2930,7 @@ function frameBody(t){
    const inputs=s.players.map(p=>{const c=game.ctrls[p.id];if(c.type==='human')return c.peer&&c.peer!==NET.me?netInput(c.peer):game.netMenu?NEUT():readHuman(c.slot);return p.role==='gk'?AI.keeper(s,p,c.diff):AI.field(s,p,c.diff);});
    if(!game.net&&!game.demo&&(setup.swap==='btn'||setup.swap==='auto'))doSwaps(s,inputs);
    game.lastInputs=inputs;
-   SIM.step(s,inputs);if(game.net)netCollect(s.events);handleEvents();acc-=SIM.DT;n++;
+   SIM.step(s,inputs);if(game.net)netCollect(s.events);if(!game.net&&!game.demo)passSwitch(s);handleEvents();acc-=SIM.DT;n++;
    if(!game.demo){game.rec.push(snap(s));if(game.rec.length>260)game.rec.shift();}
    if(s.phase==='kickoff')game.replayDone=false;
    if(!game.demo&&!game.net&&s.phase==='goal'&&s.phaseT>=0.9&&!game.replayDone&&!game.noReplay){
@@ -3144,7 +3176,7 @@ function sideCard(i){
   <p class="label">${!tmode&&sd.ctrl==='CPU'?'Capitán (CPU)':'Tu jugador'}</p>
   <div class="picker"><button type="button" id="pp${i}" aria-label="Jugador anterior">◀</button><div class="val">${isGK?'🧤 ':''}${pl.n} <span style="color:var(--muted)">#${pl.num}${isGK?' · arquero':''}</span></div><button type="button" id="pn${i}" aria-label="Jugador siguiente">▶</button></div>
   <div class="stats">${isGK?[['REF',pl.refl],['ALC',pl.reach]].map(([k,v])=>`<span>${k}</span><span class="bar"><i style="width:${(v-40)/60*100}%"></i></span><span class="n">${setup.equal?80:v}</span>`).join(''):pl.st.map((v,j)=>`<span>${names[j]}</span><span class="bar"><i style="width:${(v-40)/60*100}%"></i></span><span class="n">${setup.equal?78:v}</span>`).join('')}</div>
-  ${isGK?'<p class="small-note">Atajás vos: E agarra la pelota con la mano (solo dentro del área) y Q es la estirada.</p>':''}`;
+  ${isGK?'<p class="small-note">Atajás vos. Con mouse: dentro del área la agarrás solo, y con click te estirás hacia la mira; con la pelota en la mano, click la saca hacia la mira. Con teclado: E agarra (solo en el área) y Q es la estirada.</p>':''}`;
  if(tmode)$('ctrl'+i).innerHTML='<span class="small-note">Jugás con P1</span>';else seg($('ctrl'+i),[['P1','P1'],['P2','P2'],['CPU','CPU']],()=>sd.ctrl,v=>{if(v!=='CPU'&&other.ctrl===v)other.ctrl=v==='P1'?'P2':'P1';sd.ctrl=v;},v=>v==='P1'?'p1':v==='P2'?'p2':'');
  const mod=(a,n)=>(a%n+n)%n;
  seg($('kitsel'+i),[['auto','Auto'],['home','Titular'],['away','Suplente']],()=>sd.kit||'auto',v=>sd.kit=v);
@@ -3185,6 +3217,7 @@ function renderMenu(){
  seg($('optReplay'),[[true,'Sí, en cámara lenta'],[false,'No']],()=>setup.replays,v=>setup.replays=v);
  seg($('optFouls'),[[true,'Sí'],[false,'No']],()=>setup.fouls!==false,v=>setup.fouls=v);
  $('mousePick').hidden=!!touch.on;seg($('optMouse'),[[true,'Sí'],[false,'No (solo teclado)']],()=>setup.mouse!==false,v=>{setup.mouse=v;if(!v)mouse.seen=false;});
+ seg($('optPassSw'),[[true,'Sí'],[false,'No']],()=>setup.passSwitch!==false,v=>setup.passSwitch=v);
  seg($('optSwap'),[['no','No'],['btn','Con botón'],['auto','Automático']],()=>setup.swap||'no',v=>setup.swap=v);
  seg($('optCam'),[[true,'Sigue la jugada'],[false,'Fija']],()=>setup.camFollow!==false,v=>setup.camFollow=v);
  $('vibPick').hidden=!touch.on;seg($('optVib'),[[true,'Sí'],[false,'No']],()=>setup.vib!==false,v=>setup.vib=v);
@@ -4026,6 +4059,22 @@ function introTick(dt){
  return true;
 }
 (function(){const el=$('intro');if(el)el.addEventListener('pointerdown',e=>{e.preventDefault();if(game)game.introSkip=true;});})();
+// medidor de tiro: barrita vertical al lado del jugador. Se llena de abajo hacia arriba; soltá cuando está en la franja verde.
+function drawChargeRing(c,sx,sy,p){
+ const H=22,Wd=4,x0=Math.round(sx)+8,y0=Math.round(sy)-27-Math.round((p.jz||0)*view.ppm*ZC);
+ const [g0,g1]=SIM.PERF,ch=Math.min(1.2,p.charge),fy=v=>y0+H-Math.round(Math.min(1,v)*H);
+ const inG=ch>=g0&&ch<=g1,late=ch>g1;
+ c.fillStyle='#000';c.fillRect(x0-1,y0-1,Wd+2,H+2);
+ c.fillStyle='#2a2f2b';c.fillRect(x0,y0,Wd,H);
+ // franja verde (con marcas a los costados para verla de reojo)
+ c.fillStyle=inG?'#b6ff8a':'#2f8a3c';c.fillRect(x0,fy(g1),Wd,fy(g0)-fy(g1));
+ c.fillStyle='#7dff4f';c.fillRect(x0-3,fy(g1),2,1);c.fillRect(x0-3,fy(g0)-1,2,1);c.fillRect(x0+Wd+1,fy(g1),2,1);c.fillRect(x0+Wd+1,fy(g0)-1,2,1);
+ // relleno
+ const top=fy(ch);c.fillStyle=late?'#ff3b30':inG?'#7dff4f':'#ffe14d';c.fillRect(x0+1,top,Wd-2,y0+H-top);
+ c.fillStyle='#ffffff';c.fillRect(x0-1,top,Wd+2,1);
+ if(late&&Math.floor(performance.now()/90)%2){c.fillStyle='#ff3b30';c.fillRect(x0-1,y0-1,Wd+2,1);}
+}
+addEventListener('keydown',e=>{if(game&&game.introT>0&&!e.repeat&&e.code!=='Escape')game.introSkip=true;});
 
 if(inviteCode())setup.mode='online';
 renderMenu();startDemo();last=performance.now();requestAnimationFrame(frame);
@@ -4043,8 +4092,8 @@ function mouseWorld(){
 }
 addEventListener('pointermove',e=>{if(e.pointerType!=='mouse')return;const r=screen.getBoundingClientRect();if(!r.width)return;
  const k=screen.width/r.width;mouse.x=(e.clientX-r.left)*k;mouse.y=(e.clientY-r.top)*k;
- if(game&&!game.demo&&$('menu').hidden&&!game.pens)mouse.seen=true;});
-screen.addEventListener('pointerdown',e=>{if(e.pointerType!=='mouse'||!game||game.demo||game.replay)return;
+ if(game&&!game.demo&&$('menu').hidden)mouse.seen=true;});
+screen.addEventListener('pointerdown',e=>{if(e.pointerType!=='mouse'||!game||game.demo||game.replay)return;try{window.focus();}catch(_){}
  const r=screen.getBoundingClientRect(),k=screen.width/r.width;mouse.x=(e.clientX-r.left)*k;mouse.y=(e.clientY-r.top)*k;mouse.seen=true;
  if(e.button===0)mouse.l=true;else if(e.button===2)mouse.r=true;e.preventDefault();});
 addEventListener('pointerup',e=>{if(e.pointerType!=='mouse')return;if(e.button===0)mouse.l=false;else if(e.button===2)mouse.r=false;});
