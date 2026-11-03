@@ -2757,7 +2757,7 @@ function hintText_fut(){
 // Cambio de jugador: con botón pasás al compañero más cerca de la pelota; en automático pasa solo cuando otro está claramente más cerca
 
 // Pase a un compañero de la CPU: si jugás solo en tu equipo (o con la CPU), pasás a manejar al que la recibe
-function passSwitch(s){
+function passSwitch_fut(s){
  if(setup.passSwitch===false)return;
  for(const e of s.events){
   if(e.t==='kick'&&e.id!=null&&!e.shot&&!e.header){const c=game.ctrls[e.id],p=s.players[e.id];if(c&&c.type==='human'&&!c.peer&&p&&p.role!=='gk')game.passSw={from:e.id,team:p.team,k:s.tick};}
@@ -4075,6 +4075,17 @@ function drawChargeRing(c,sx,sy,p){
  if(late&&Math.floor(performance.now()/90)%2){c.fillStyle='#ff3b30';c.fillRect(x0-1,y0-1,Wd+2,1);}
 }
 addEventListener('keydown',e=>{if(game&&game.introT>0&&!e.repeat&&e.code!=='Escape')game.introSkip=true;});
+// Básquet: si sos el único humano de tu equipo, manejás siempre al que tiene la pelota (pase, rebote, robo o pelota suelta)
+function passSwitch(s){
+ if(setup.passSwitch===false)return;
+ const b=s.ball;if(b.holder<0)return;
+ const q=s.players[b.holder],cq=game.ctrls[q.id];if(!cq||cq.type!=='ai')return;
+ const hum=s.players.filter(p=>p.team===q.team&&game.ctrls[p.id].type==='human'&&!game.ctrls[p.id].peer);
+ if(hum.length!==1)return;
+ const p=hum[0],cp=game.ctrls[p.id];
+ game.ctrls[q.id]=cp;game.ctrls[p.id]={type:'ai',diff:'normal'};p.charging=false;q.charging=false;q.kickUsed=true;
+ popup('▼',q.x,q.y,cp.slot===1?'#3fd8ff':'#ff5aa8');
+}
 
 if(inviteCode())setup.mode='online';
 renderMenu();startDemo();last=performance.now();requestAnimationFrame(frame);
