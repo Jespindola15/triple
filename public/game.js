@@ -365,7 +365,7 @@ const SIM=(()=>{
   const T=0.55+sp.d*0.055;
   launch(s,p,tx,ty,tz,T,2.15+0.2);
   s.ball.shot={team:p.team,id:p.id,pts,make,t:0,T,done:false,dunk:false,lay:false,foul};
-  s.events.push({t:'kick',shot:true,id:p.id,team:p.team,x:p.x,y:p.y,pts,prob:sp.prob,perfect:tq>1.2,late:c>PERF[1]+0.1,power:10,vx:s.ball.vx,vy:s.ball.vy});
+  s.events.push({t:'kick',shot:true,cont:sp.dd<0.75?48:sp.dd<1.25?26:sp.dd<2?10:0,id:p.id,team:p.team,x:p.x,y:p.y,pts,prob:sp.prob,perfect:tq>1.2,late:c>PERF[1]+0.1,power:10,vx:s.ball.vx,vy:s.ball.vy});
  }
  // bandeja o volcada
  function drive(s,p,dunk){
@@ -426,7 +426,11 @@ const SIM=(()=>{
    else{
     const prev=Math.sin(b.dribT);b.dribT+=DT*(sp>0.6?9.5:7.5);const cur=Math.sin(b.dribT);
     if(prev>0&&cur<=0||prev<0&&cur>=0)s.events.push({t:'drib',x:b.x,y:b.y});
-    const side=0.22;b.x=h.x+fx*0.36-fy*side;b.y=h.y+fy*0.36+fx*side;b.z=BR+Math.abs(cur)*0.85+h.jz;
+    // cambio de mano (crossover): si encarás para el otro lado, la pelota pasa a la otra mano con un pique bajo
+    const lat=h.wantX*(-fy)+h.wantY*fx;if(h.hand==null){h.hand=1;h.handS=1;}
+    if(Math.abs(lat)>0.55&&Math.sign(lat)!==h.hand){h.hand=Math.sign(lat);b.dribT=Math.PI*0.92;s.events.push({t:'cross',id:h.id});}
+    h.handS+=(h.hand-h.handS)*Math.min(1,DT*16);
+    const side=0.22*h.handS;b.x=h.x+fx*0.36-fy*side;b.y=h.y+fy*0.36+fx*side;b.z=BR+Math.abs(Math.sin(b.dribT))*(Math.abs(h.handS)<0.9?0.35:0.85)+h.jz;
    }
    b.vx=h.vx;b.vy=h.vy;b.vz=0;b.roll+=sp*DT*2;return;
   }
@@ -878,6 +882,7 @@ function readHuman(slot){
  }
  for(const a of [P.kick,P.lob,P.slide,P.pass,P.swap])for(const c of a)tapped.delete(c);
  const l=Math.hypot(mx,my);if(l>1){mx/=l;my/=l;}
+ if(slot===1&&cam2kOn()){const yw=game.k2.yaw,fw=-my,rt=mx;mx=fw*Math.cos(yw)-rt*Math.sin(yw);my=fw*Math.sin(yw)+rt*Math.cos(yw);}
  let aim=false,tx=0,ty=0;
  if(slot===1&&mouseOn()){const w=mouseWorld();if(w){aim=true;tx=w[0];ty=w[1];kick=kick||mouse.l;pass=pass||mouse.r;}}
  return{aim,tx,ty,mx,my,kick,lob,sprint,slide,pass,swap,dive:false,skill,sx,sy,hx:true,assist:setup.assist==null?!!touch.on:!!setup.assist};
@@ -1921,6 +1926,7 @@ function render(dt){
  sctx.fillStyle='#0b1712';sctx.fillRect(0,0,W,H);
  if(!game)return;
  if(game.pens){renderPens(dt,W,H);return;}
+ if(!game.demo&&!game.replay&&setup.cam2k){k2Update(dt);if(game.k2&&game.k2.ok){render2k(dt,W,H);return;}}
  const s=game.state;
  const scn=game.replay?snapScene(game.replay.frames[Math.min(game.replay.frames.length-1,Math.floor(game.replay.t))]):{players:s.players,ball:s.ball,replay:false};
  const key=s.L+'|'+game.kits[0].p+game.kits[1].p+'|'+fontsReady+'|'+game.stadium.n+game.teams[0].id+game.teams[1].id;
@@ -3277,6 +3283,7 @@ function renderMenu(){
  $('wxLabel').textContent=SPORT.wxLabel||'Clima';seg($('optWx'),SPORT.wxOpts||[['auto','Al azar'],['dia','Día'],['noche','Noche'],['lluvia','Lluvia'],['nieve','Nieve']],()=>setup.weather||'auto',v=>setup.weather=v);
  seg($('optPassSw'),[[true,'Sí'],[false,'No']],()=>setup.passSwitch!==false,v=>setup.passSwitch=v);
  seg($('optSwap'),[['no','No'],['btn','Con botón'],['auto','Automático']],()=>setup.swap||'no',v=>setup.swap=v);
+ seg($('optCam2k'),[[false,'Clásica (de arriba)'],[true,'2K (detrás de tu jugador)']],()=>!!setup.cam2k,v=>setup.cam2k=v);
  seg($('optCam'),[[true,'Sigue la jugada'],[false,'Fija']],()=>setup.camFollow!==false,v=>setup.camFollow=v);
  $('vibPick').hidden=!touch.on;seg($('optVib'),[[true,'Sí'],[false,'No']],()=>setup.vib!==false,v=>setup.vib=v);
  seg($('optAssist'),[[true,'Sí'],[false,'No']],()=>setup.assist==null?!!touch.on:!!setup.assist,v=>setup.assist=v);
@@ -4209,7 +4216,8 @@ function handleEvents(){
    case'kick':
     if(e.shot&&e.ft){st.ftA=st.ftA||[0,0];st.ftA[e.team]++;if(e.perfect)popup('¡PERFECTO!',e.x,e.y,'#7dff4f');}
     else if(e.shot){st.shots[e.team]++;ps(e.id).sh++;if(e.pts===3)st.threeA[e.team]++;
-     if(e.perfect)popup('¡PERFECTO!',e.x,e.y,'#7dff4f');else if(e.late&&game.ctrls[e.id].type==='human')popup('TARDE',e.x,e.y,'#ff8a65');
+     if(game.ctrls[e.id]&&game.ctrls[e.id].type==='human'){const tm=e.perfect?'PERFECTO':e.late?'TARDE':'TEMPRANO',mk=e.cont?e.cont+'% MARCADO':'LIBRE';popup(tm+' · '+mk,e.x,e.y,e.perfect?'#7dff4f':e.late?'#ff8a65':'#ffe14d');}
+     else if(e.perfect)popup('¡PERFECTO!',e.x,e.y,'#7dff4f');
      crowdEvent('chance');}
     break;
    case'goal':{
@@ -4348,6 +4356,184 @@ function passSwitch(s){
  popup('▼',q.x,q.y,cp.slot===1?'#3fd8ff':'#ff5aa8');
 }
 
+/* ===================== CÁMARA 2K =====================
+   Cámara en tercera persona detrás de tu jugador, mirando al aro (como en los juegos de básquet de consola),
+   todo dibujado en pixel art: la cancha en perspectiva y los mismos muñequitos, escalados según la distancia.
+   Con la cámara 2K las teclas son relativas a la cámara: W va hacia el aro. */
+const K2={F:300,H:3.4,BACK:6.2,PITCH:0.22};
+function cam2kOn(){return !!(game&&!game.demo&&!game.replay&&!game.pens&&setup.cam2k&&game.k2&&game.k2.ok);}
+function k2Me(s){
+ if(game.net){const id=game.myId;return id!=null?s.players[id]:null;}
+ const hs=s.players.filter(p=>game.ctrls[p.id]&&game.ctrls[p.id].type==='human');
+ return hs.find(p=>game.ctrls[p.id].slot===1)||hs[0]||null;
+}
+// actualiza la cámara (se llama en cada cuadro, antes de leer los controles)
+function k2Update(dt){
+ const s=game.state,K=game.k2||(game.k2={ok:false,fx:0,fy:0,yaw:0,init:false});
+ const me=k2Me(s);if(!me||!setup.cam2k){K.ok=false;return;}
+ const b=s.ball,poss=b.holder>=0?s.players[b.holder].team:(b.shot?b.shot.team:b.lastTeam);
+ const atk=poss<0?me.team:poss;
+ const hx=SIM.hoopX(s,atk);
+ const onO=atk===me.team;
+ // a quién sigue: a vos en ataque; en defensa, a la pelota (así te ves entre el rival y tu aro)
+ const tx=onO?me.x:b.x*0.6+me.x*0.4,ty=onO?me.y:b.y*0.6+me.y*0.4;
+ const axis=hx>0?0:Math.PI;let want=Math.atan2(-ty,hx-tx);
+ let df=want-axis;while(df>Math.PI)df-=2*Math.PI;while(df<-Math.PI)df+=2*Math.PI;df=SIM.clamp(df,-0.6,0.6);want=axis+df;
+ if(!K.init){K.fx=tx;K.fy=ty;K.yaw=want;K.init=true;}
+ const a=Math.min(1,dt*4.5);K.fx+=(tx-K.fx)*a;K.fy+=(ty-K.fy)*a;
+ let dy=want-K.yaw;while(dy>Math.PI)dy-=2*Math.PI;while(dy<-Math.PI)dy+=2*Math.PI;K.yaw+=dy*Math.min(1,dt*(Math.abs(dy)>1.5?2.2:3.2));
+ K.cx=K.fx-Math.cos(K.yaw)*K2.BACK;K.cy=K.fy-Math.sin(K.yaw)*K2.BACK;K.ok=true;K.me=me;
+}
+// mundo → pantalla (pbuf 640×400). Devuelve [x,y,escala(px por metro),profundidad] o null si queda detrás
+function k2P(x,y,z){
+ const K=game.k2,rx=x-K.cx,ry=y-K.cy,c=Math.cos(K.yaw),sn=Math.sin(K.yaw);
+ const Z=rx*c+ry*sn,X=-rx*sn+ry*c,Yc=z-K2.H,cp=Math.cos(K2.PITCH),sp=Math.sin(K2.PITCH);
+ const d=-Yc*sp+Z*cp,v=Yc*cp+Z*sp;if(d<0.3)return null;
+ return[PW/2+X*K2.F/d,PH*0.4-v*K2.F/d,K2.F/d,d];
+}
+function k2Depth(x,y,z){const K=game.k2,rx=x-K.cx,ry=y-K.cy,c=Math.cos(K.yaw),sn=Math.sin(K.yaw),Z=rx*c+ry*sn,Yc=(z||0)-K2.H;return -Yc*Math.sin(K2.PITCH)+Z*Math.cos(K2.PITCH);}
+// pantalla → piso (para apuntar el pase con el mouse)
+function k2Floor(px,py){
+ const cp=Math.cos(K2.PITCH),sp=Math.sin(K2.PITCH),t=(PH*0.4-py)/K2.F,X0=(px-PW/2)/K2.F;
+ // rayo: d=1 → v=t, X=X0. En coordenadas de cámara: Yc=v*cp-1*sp... se resuelve para el piso (z=0)
+ const Yr=t*cp-sp,Zr=t*sp+cp;if(Yr>=-1e-4)return null;const k=-K2.H/Yr,Z=Zr*k,X=X0*k;
+ const K=game.k2,c=Math.cos(K.yaw),sn=Math.sin(K.yaw);return[K.cx+Z*c-X*sn,K.cy+Z*sn+X*c];
+}
+function k2Line(g,pts,col){let lp=null;for(const q of pts){const p=k2P(q[0],q[1],q[2]||0);if(p&&lp)pline(g,lp[0],lp[1],p[0],p[1],col);lp=p;}}
+// recorta un polígono del piso contra el plano cercano y lo pinta
+function k2Poly(g,wpts,col){
+ const K=game.k2,c=Math.cos(K.yaw),sn=Math.sin(K.yaw),near=0.35;
+ const dep=q=>k2Depth(q[0],q[1],q[2]||0);const out=[];
+ for(let i=0;i<wpts.length;i++){const a=wpts[i],b=wpts[(i+1)%wpts.length],da=dep(a),db=dep(b);
+  if(da>=near)out.push(a);
+  if((da>=near)!==(db>=near)){const t=(near-da)/(db-da);out.push([a[0]+(b[0]-a[0])*t,a[1]+(b[1]-a[1])*t,(a[2]||0)+((b[2]||0)-(a[2]||0))*t]);}}
+ if(out.length<3)return;const P2=out.map(q=>k2P(q[0],q[1],q[2]||0)).filter(Boolean);if(P2.length>=3)polyFill(g,P2,col);
+}
+const k2spr=document.createElement('canvas');k2spr.width=40;k2spr.height=48;const k2sg=k2spr.getContext('2d');
+let k2crowd=null;
+function k2Crowd(){
+ if(k2crowd)return k2crowd;const c=document.createElement('canvas');c.width=1600;c.height=120;const g=c.getContext('2d');
+ const k=game.kits,cols=[k[0].p,k[0].s,k[1].p,k[1].s,'#2a2f38','#3a3f4a','#1c2028','#d8d0c0','#8a6a4a'];
+ g.fillStyle='#14161c';g.fillRect(0,0,1600,120);
+ let sd=11;const r=()=>(sd=(sd*16807)%2147483647)/2147483647;
+ for(let y=6;y<112;y+=4)for(let x=0;x<1600;x+=3){if(r()<0.18)continue;g.fillStyle=cols[Math.floor(r()*cols.length)];g.fillRect(x,y,2,2);g.fillStyle='rgba(0,0,0,0.35)';g.fillRect(x,y+2,2,1);}
+ for(let x=0;x<1600;x+=200){g.fillStyle='#fff8d8';g.fillRect(x+40,1,6,3);g.fillRect(x+120,1,6,3);}
+ return k2crowd=c;
+}
+function k2Hoop(g,s,sd,t){
+ const L2=s.L/2,bx=sd*(L2-SIM.BOARD_OFF),hx=sd*(L2-SIM.HOOP_OFF),RH=SIM.RIM_H,pad=game.kits[sd<0?0:1].p;
+ // poste y brazo
+ const base=k2P(sd*(L2+1),0,0),top=k2P(sd*(L2+1),0,3.4),arm=k2P(bx+sd*0.12,0,3.4);
+ if(base&&top){const w=Math.max(2,Math.round(0.18*base[2]));g.fillStyle='#3a3f47';g.fillRect(Math.round(top[0]-w/2),Math.round(top[1]),w,Math.round(base[1]-top[1]));
+  const pw=Math.round(0.9*base[2]),ph=Math.round(1.0*base[2]);g.fillStyle=pad;g.fillRect(Math.round(base[0]-pw/2),Math.round(base[1]-ph),pw,ph);g.fillStyle=sh(pad,-0.3);g.fillRect(Math.round(base[0]-pw/2),Math.round(base[1]-ph),pw,Math.max(1,Math.round(ph*0.15)));}
+ if(top&&arm){pline(g,top[0],top[1],arm[0],arm[1],'#3a3f47');pline(g,top[0],top[1]+1,arm[0],arm[1]+1,'#2a2e34');}
+ // tablero (de frente: se ve bien en esta cámara)
+ const C=[[bx,-0.9,3.95],[bx,0.9,3.95],[bx,0.9,2.9],[bx,-0.9,2.9]].map(q=>k2P(...q));
+ if(C.every(Boolean)){polyFill(g,C,'rgba(235,242,248,0.86)');for(let i=0;i<4;i++){const a=C[i],b=C[(i+1)%4];pline(g,a[0],a[1],b[0],b[1],'#1b1d22');}
+  const Q=[[bx,-0.3,3.45],[bx,0.3,3.45],[bx,0.3,3.0],[bx,-0.3,3.0]].map(q=>k2P(...q));for(let i=0;i<4;i++){const a=Q[i],b=Q[(i+1)%4];if(a&&b)pline(g,a[0],a[1],b[0],b[1],'#e8562a');}}
+ // red y aro
+ const f=hoopFx[String(sd)]||0,shk=f>1?Math.sin(performance.now()/25)*0.03:0;
+ const N=14,rim=[],bot=[];for(let i=0;i<N;i++){const a=i/N*Math.PI*2;rim.push(k2P(hx+Math.cos(a)*SIM.RIM_R,Math.sin(a)*SIM.RIM_R,RH+shk));bot.push(k2P(hx+Math.cos(a)*SIM.RIM_R*0.55,Math.sin(a)*SIM.RIM_R*0.55,RH-0.45*(1+f*0.5)+Math.sin(t*20+i)*0.02*f));}
+ for(let i=0;i<N;i++){const a=rim[i],b=bot[i];if(a&&b)pline(g,a[0],a[1],b[0],b[1],'rgba(245,245,240,0.8)');const c2=bot[(i+1)%N];if(b&&c2&&i%2===0)pline(g,b[0],b[1],c2[0],c2[1],'rgba(245,245,240,0.55)');}
+ const bk=k2P(bx,0,RH),fr=k2P(hx-sd*SIM.RIM_R,0,RH);if(bk&&fr)pline(g,bk[0],bk[1],fr[0],fr[1],'#b8420f');
+ for(let i=0;i<N;i++){const a=rim[i],b=rim[(i+1)%N];if(a&&b){pline(g,a[0],a[1],b[0],b[1],'#ff6a1f');pline(g,a[0],a[1]+1,b[0],b[1]+1,'#b8420f');}}
+}
+function render2k(dt,W,H){
+ const s=game.state,g=pg,K=game.k2,t=performance.now()/1000;g.imageSmoothingEnabled=false;
+ const L2=s.L/2,W2=s.W/2,hz=k2P(K.cx+Math.cos(K.yaw)*200,K.cy+Math.sin(K.yaw)*200,0);
+ const hy=hz?Math.round(hz[1]):Math.round(PH*0.3);
+ // fondo: tribuna con gente y luces
+ g.fillStyle='#0c0e13';g.fillRect(0,0,PW,PH);
+ const cr=k2Crowd(),off=Math.round(((K.yaw/(Math.PI*2))%1+1)%1*1600*1.4)%1600;
+ for(let x=-off;x<PW;x+=1600)g.drawImage(cr,x,hy-130);
+ g.fillStyle='rgba(0,0,0,0.35)';g.fillRect(0,hy-12,PW,12);
+ // LED de la tribuna
+ g.fillStyle='#0a0a0a';g.fillRect(0,hy-14,PW,7);g.font='8px Silkscreen, monospace';g.textBaseline='middle';
+ const msg='TRIPLE PIXEL   ·   '+game.teams[0].name.toUpperCase()+' VS '+game.teams[1].name.toUpperCase()+'   ·   ';for(let x=-((t*30)%220);x<PW;x+=220){g.fillStyle=game.kits[0].p;g.textAlign='left';g.fillText(msg,x,hy-10);}
+ // piso fuera de la cancha y cancha
+ g.fillStyle='#4a2e18';g.fillRect(0,hy-2,PW,PH-hy+2);
+ k2Poly(g,[[-L2-2,-W2-2],[L2+2,-W2-2],[L2+2,W2+2],[-L2-2,W2+2]],'#6e4426');
+ k2Poly(g,[[-L2,-W2],[L2,-W2],[L2,W2],[-L2,W2]],'#c98c52');
+ for(let y=-W2;y<W2;y+=0.85)k2Poly(g,[[-L2,y],[L2,y],[L2,y+0.42],[-L2,y+0.42]],'#bf8349');
+ const keyCol=hexA(game.kits[0].p,0.78),Wl='rgba(250,246,236,0.95)';
+ for(const sd of [-1,1]){k2Poly(g,[[sd*L2,-2.45],[sd*(L2-5.8),-2.45],[sd*(L2-5.8),2.45],[sd*L2,2.45]],keyCol);}
+ // líneas
+ k2Line(g,[[-L2,-W2],[L2,-W2]],Wl);k2Line(g,[[-L2,W2],[L2,W2]],Wl);k2Line(g,[[-L2,-W2],[-L2,W2]],Wl);k2Line(g,[[L2,-W2],[L2,W2]],Wl);k2Line(g,[[0,-W2],[0,W2]],Wl);
+ const circ=(cx,cy,r,a0,a1,n)=>{const a=[];for(let i=0;i<=n;i++){const an=a0+(a1-a0)*i/n;a.push([cx+Math.cos(an)*r,cy+Math.sin(an)*r]);}return a;};
+ k2Line(g,circ(0,0,1.8,0,Math.PI*2,28),Wl);
+ for(const sd of [-1,1]){
+  const hx=sd*(L2-SIM.HOOP_OFF),kx=sd*(L2-5.8);
+  k2Line(g,[[sd*L2,-2.45],[kx,-2.45],[kx,2.45],[sd*L2,2.45]],Wl);
+  k2Line(g,circ(kx,0,1.8,sd>0?Math.PI/2:-Math.PI/2,sd>0?Math.PI*1.5:Math.PI/2,16),Wl);
+  const yc=W2-0.9,ang=Math.asin(Math.min(1,yc/s.R3)),xa=hx-sd*Math.cos(ang)*s.R3;
+  k2Line(g,[[sd*L2,-yc],[xa,-yc]],Wl);k2Line(g,[[sd*L2,yc],[xa,yc]],Wl);
+  const arc=[];for(let i=0;i<=40;i++){const a=-ang+i/40*2*ang;arc.push([hx-sd*Math.cos(a)*s.R3,Math.sin(a)*s.R3]);}k2Line(g,arc,Wl);
+ }
+ // entidades ordenadas por distancia (de lejos a cerca)
+ const b=s.ball,ents=[];
+ for(const p of s.players)ents.push({d:k2Depth(p.x,p.y,0),p});
+ ents.push({d:k2Depth(b.x,b.y,0)-0.05,ball:true});
+ for(const sd of [-1,1])ents.push({d:k2Depth(sd*(s.L/2-SIM.HOOP_OFF),0,0)+0.3,hoop:sd});
+ ents.sort((a,c)=>c.d-a.d);
+ const now=t;
+ for(const e of ents){
+  if(e.hoop){k2Hoop(g,s,e.hoop,t);continue;}
+  if(e.ball){const q=k2P(b.x,b.y,b.z),sq=k2P(b.x,b.y,0);if(!q)continue;
+   if(sq){g.fillStyle=`rgba(0,0,0,${Math.max(0.12,0.4-b.z*0.06)})`;const rw=Math.max(2,Math.round(0.16*sq[2]));g.fillRect(Math.round(sq[0]-rw),Math.round(sq[1]),rw*2,Math.max(1,Math.round(rw*0.4)));}
+   const r=Math.max(1.6,SIM.BR*q[2]*1.25);disc(g,q[0],q[1],r,'#e8701f');disc(g,q[0]-r*0.3,q[1]-r*0.3,r*0.45,'#ff9d4a');
+   const ra=Math.round(r);g.fillStyle='#3a1a08';const sp=((b.roll||0)*2)%2<1;if(sp)g.fillRect(Math.round(q[0]-ra),Math.round(q[1]),ra*2,1);else g.fillRect(Math.round(q[0]),Math.round(q[1]-ra),1,ra*2);continue;}
+  const p=e.p,q=k2P(p.x,p.y,0);if(!q)continue;
+  const sc=q[2];if(sc<4)continue;
+  const human=game.ctrls[p.id]&&game.ctrls[p.id].type==='human',hcol=human?(game.ctrls[p.id].col||(game.ctrls[p.id].slot===1?'#3fd8ff':'#ff5aa8')):null;
+  // sombra
+  g.fillStyle='rgba(0,0,0,0.35)';const sw=Math.round(0.42*sc);g.fillRect(Math.round(q[0]-sw),Math.round(q[1]-sw*0.15),sw*2,Math.max(1,Math.round(sw*0.3)));
+  // arco de energía bajo tu jugador (como en los juegos de consola)
+  if(human&&p===K.me){const rr=0.75;let lp=null;for(let i=0;i<=24;i++){const an=Math.PI*0.15+i/24*Math.PI*0.7;const w=k2P(p.x+Math.cos(K.yaw+an+Math.PI/2)*rr,p.y+Math.sin(K.yaw+an+Math.PI/2)*rr,0);if(w&&lp){const fr=i/24<=p.stam;pline(g,lp[0],lp[1],w[0],w[1],fr?(p.stam>0.3?'#e8e8e8':'#ff5a4f'):'rgba(255,255,255,0.25)');pline(g,lp[0],lp[1]+1,w[0],w[1]+1,fr?'#b33':'rgba(0,0,0,0.3)');}lp=w;}
+   if(p.fire){for(let i=0;i<10;i++){const an=i/10*Math.PI*2+now*3,w=k2P(p.x+Math.cos(an)*0.7,p.y+Math.sin(an)*0.7,0.1+Math.abs(Math.sin(now*9+i))*0.3);if(w){g.fillStyle=i%2?'#ffb02e':'#ff5a1f';g.fillRect(Math.round(w[0]),Math.round(w[1]),2,2);}}}}
+  // muñequito: mismo dibujo que la vista de arriba, escalado por la distancia
+  const rel=p.face-K.yaw,cs=Math.cos(rel),sn=Math.sin(rel);
+  const view=cs>0.55?{view:'back',flip:false}:cs<-0.55?{view:'front',flip:false}:{view:'side',flip:sn<0};
+  const spd=Math.hypot(p.vx,p.vy);
+  const o=Object.assign({kit:bkit(game.kits[p.team],p),skin:SKIN[p.skin|0],hair:p.hair||'#222',name:p.name,phase:p.run,moving:spd>0.6,num:p.num,lean:!!p.spr},view);
+  const hasB=b.holder===p.id;
+  if(p.hangT>0)o.hang=true;else if(p.dunkT>0)o.oneUp=true;else if(p.charging||p.shootT>0.12)o.armsUp=true;else if(p.jz>0.15)o.armsUp=true;
+  else if(p.swipeT>0)o.reach=true;else if(p.kickAnim>0)o.chest=true;else if(hasB){o.dribble=true;o.dribZ=b.z;}else if(p.pressing)o.stance=true;
+  if(s.phase==='goal'&&p.team===s.lastGoalTeam){o.cele=true;o.armsUp=true;}
+  k2sg.clearRect(0,0,40,48);drawFootballer(k2sg,20,44,o);
+  const k=(2.0*sc)/23,lift=(p.jz||0)*sc*Math.cos(K2.PITCH)+(s.phase==='goal'&&p.team===s.lastGoalTeam?Math.abs(Math.sin(now*9+p.id))*0.3*sc:0);
+  g.drawImage(k2spr,Math.round(q[0]-20*k),Math.round(q[1]-44*k-lift),Math.round(40*k),Math.round(48*k));
+  if(p.fire){for(let i=0;i<6;i++){g.fillStyle=i%2?'rgba(255,176,46,0.8)':'rgba(255,90,31,0.8)';g.fillRect(Math.round(q[0]-8*k+i*3*k),Math.round(q[1]-lift-(4+Math.abs(Math.sin(now*11+i))*6)*k),Math.max(1,Math.round(k)),Math.round(5*k));}}
+  // medidor de tiro al costado (en vertical, como en la vista de arriba)
+  if(human&&p.charging){const Hh=Math.round(26*Math.min(2,k)),x0=Math.round(q[0]+12*k),y0=Math.round(q[1]-30*k-lift);const[g0,g1]=SIM.PERF,ch=Math.min(1.2,p.charge),fy=v=>y0+Hh-Math.round(Math.min(1,v)*Hh),inG=ch>=g0&&ch<=g1,late=ch>g1;
+   g.fillStyle='#000';g.fillRect(x0-1,y0-1,7,Hh+2);g.fillStyle='#2a2f2b';g.fillRect(x0,y0,5,Hh);g.fillStyle=inG?'#b6ff8a':'#2f8a3c';g.fillRect(x0,fy(g1),5,fy(g0)-fy(g1));
+   const tp=fy(ch);g.fillStyle=late?'#ff3b30':inG?'#7dff4f':'#ffe14d';g.fillRect(x0+1,tp,3,y0+Hh-tp);g.fillStyle='#fff';g.fillRect(x0-1,tp,7,1);}
+  // nombre
+  e.sx=q[0];e.sy=q[1]-27*k-lift;e.human=human;e.hcol=hcol;
+ }
+ // compone en pantalla y escribe los nombres nítidos
+ const sc=Math.min(W/PW,H/PH),ox=Math.round((W-PW*sc)/2),oy=Math.round((H-PH*sc)/2);
+ sctx.imageSmoothingEnabled=false;sctx.drawImage(pbuf,ox,oy,Math.round(PW*sc),Math.round(PH*sc));
+ K.xf={ox,oy,sc};
+ const fs=Math.max(13,Math.round(5.5*sc));sctx.font=`${fs}px VT323, monospace`;sctx.textAlign='center';sctx.textBaseline='bottom';
+ for(const e of ents){if(!e.p||e.sx==null)continue;const p=e.p,c=game.ctrls[p.id];const label=e.human?(c.label||('P'+c.slot+' '+p.name)):p.name;
+  const tx=ox+e.sx*sc,ty=oy+(e.sy-2)*sc;sctx.fillStyle='rgba(0,0,0,.7)';sctx.fillText(label,tx+1,ty+1);sctx.fillStyle=e.human?e.hcol:(p.team===0?'rgba(255,240,170,.9)':'rgba(220,235,255,.9)');sctx.fillText(label,tx,ty);}
+ // carteles
+ const pf=Math.max(14,Math.round(6*sc));sctx.font=`${pf}px Silkscreen, monospace`;
+ for(let i=fx.popups.length-1;i>=0;i--){const q2=fx.popups[i];q2.t+=dt;if(q2.t>1.1){fx.popups.splice(i,1);continue;}const w=k2P(q2.x,q2.y,2.6+q2.t*0.8);if(!w)continue;
+  const tx=ox+w[0]*sc,ty=oy+w[1]*sc;sctx.globalAlpha=q2.t>0.75?1-(q2.t-0.75)/0.35:1;sctx.fillStyle='#000';sctx.fillText(q2.text,tx+2,ty+2);sctx.fillStyle=q2.col;sctx.fillText(q2.text,tx,ty);sctx.globalAlpha=1;}
+ if(fx.flash>0){sctx.fillStyle=`rgba(255,240,200,${fx.flash*0.5})`;sctx.fillRect(0,0,W,H);fx.flash=Math.max(0,fx.flash-dt*1.6);}
+ if(mouseOn()){const mx0=Math.round(mouse.x),my0=Math.round(mouse.y),u=Math.max(2,Math.round(sc));sctx.fillStyle='rgba(0,0,0,.7)';sctx.fillRect(mx0-5*u,my0-u,10*u+u,3*u);sctx.fillRect(mx0-u,my0-5*u,3*u,10*u+u);sctx.fillStyle='#3fd8ff';sctx.fillRect(mx0-5*u,my0,4*u,u);sctx.fillRect(mx0+2*u,my0,4*u,u);sctx.fillRect(mx0,my0-5*u,u,4*u);sctx.fillRect(mx0,my0+2*u,u,4*u);}
+ // indicador de cámara
+ sctx.font=`${Math.max(11,Math.round(4*sc))}px Silkscreen, monospace`;sctx.textAlign='left';sctx.textBaseline='top';sctx.fillStyle='rgba(255,255,255,0.55)';sctx.fillText(touch.on?'CÁMARA 2K':'CÁMARA 2K · V cambia',ox+8*sc,oy+(PH-14)*sc);
+}
+function mouseWorld(){
+ if(cam2kOn()){const K=game.k2;if(!K.xf)return null;const px=(mouse.x-K.xf.ox)/K.xf.sc,py=(mouse.y-K.xf.oy)/K.xf.sc;return k2Floor(px,py);}
+ const xf=game&&game.xf;if(!xf||!view)return null;
+ const bxp=(mouse.x-xf.ox)/xf.sc,byp=(mouse.y-xf.oy)/xf.sc;
+ return[(bxp-view.cx)/view.ppm,(byp-view.cy)/(view.ppm*YC)];
+}
+addEventListener('keydown',e=>{if((e.code==='KeyV'||e.key==='v'||e.key==='V')&&!e.repeat&&game&&!game.demo&&$('menu').hidden&&!(document.activeElement&&document.activeElement.tagName==='INPUT')){setup.cam2k=!setup.cam2k;save();if(game.k2)game.k2.init=false;popup(setup.cam2k?'CÁMARA 2K':'CÁMARA CLÁSICA',game.state.ball.x,game.state.ball.y,'#9be7ff');}});
+
 if(inviteCode())setup.mode='online';
 renderMenu();startDemo();last=performance.now();requestAnimationFrame(frame);
 screen.addEventListener('pointerdown',()=>{try{window.focus();}catch(e){}});
@@ -4357,7 +4543,7 @@ screen.addEventListener('pointerdown',()=>{try{window.focus();}catch(e){}});
    Click izquierdo = patear (mantené para cargar) · click derecho = globo. El teclado sigue andando igual. */
 const mouse={seen:false,x:0,y:0,l:false,r:false,wx:0,wy:0};
 function mouseOn(){return setup.mouse!==false&&mouse.seen&&!touch.on;}
-function mouseWorld(){
+function mouseWorld_fut(){
  const xf=game&&game.xf;if(!xf||!view)return null;
  const bxp=(mouse.x-xf.ox)/xf.sc,byp=(mouse.y-xf.oy)/xf.sc;
  return[(bxp-view.cx)/view.ppm,(byp-view.cy)/(view.ppm*YC)];
