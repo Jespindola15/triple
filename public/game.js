@@ -130,7 +130,7 @@ const SIM=(()=>{
   for(let i=0;i<HN;i++)s.hist[i]={x:0,y:0,z:0};
   return s;
  }
- function resetP(p){p.skill=null;p.slideT=0;p.recoverT=0;p.stunT=0;p.vx=p.vy=0;p.charging=false;p.charge=0;p.cool=0.2;p.holdT=0;p.jz=0;p.jvz=0;p.swipeT=0;p.protT=0;p.shootT=0;p.dunkT=0;p.alleyT=0;}
+ function resetP(p){p.jumped=false;p.fakeT=0;p.skill=null;p.slideT=0;p.recoverT=0;p.stunT=0;p.vx=p.vy=0;p.charging=false;p.charge=0;p.cool=0.2;p.holdT=0;p.jz=0;p.jvz=0;p.swipeT=0;p.protT=0;p.shootT=0;p.dunkT=0;p.alleyT=0;}
  // saque desde el fondo: el equipo que ataca arranca con la pelota en su campo, el otro espera en su aro
  function resetKickoff(s,team){
   s.phase='kickoff';s.phaseT=0;s.kickoffTeam=team;s.shotClock=SC;s.poss=team;
@@ -209,7 +209,7 @@ const SIM=(()=>{
  // ---------------- control de cada jugador ----------------
  function control(s,p,inp){
   const b=s.ball;
-  for(const k of ['cool','kickAnim','swipeT','swipeCd','protT','shootT','skillCd','stunT','alleyT','recvT'])if(p[k]>0)p[k]=Math.max(0,p[k]-DT);
+  for(const k of ['cool','kickAnim','swipeT','swipeCd','protT','shootT','skillCd','stunT','alleyT','recvT','fakeT'])if(p[k]>0)p[k]=Math.max(0,p[k]-DT);
   if(p.skill){p.skill.t+=DT;if(p.skill.t>=p.skill.dur)p.skill=null;}
   // en el aire
   const air=p.jz>0||p.jvz>0;
@@ -231,11 +231,11 @@ const SIM=(()=>{
   }
   const spr=!!inp.sprint&&p.stam>0.05&&Math.hypot(mx,my)>0.1&&!p.charging;
   const fat=0.84+0.16*Math.min(1,p.stam/0.35);
-  const spd=p.maxSpd*(p.fire?1.05:1)*(spr?1.22:1)*(has?0.93:1)*(p.charging?0.3:1)*(p.stunT>0?0.35:1)*fat;
+  const spd=p.maxSpd*(p.fire?1.05:1)*(spr?1.22:1)*(has?0.93:1)*(p.charging?(s.phase==='ft'?0.3:0.05):1)*(p.stunT>0?0.35:1)*fat;
   if(!air){
    const k=1-Math.exp(-(Math.hypot(mx,my)>0.1?p.accel:p.accel*1.6)*DT);
    p.vx+=(mx*spd-p.vx)*k;p.vy+=(my*spd-p.vy)*k;
-  }else{p.vx*=Math.exp(-0.6*DT);p.vy*=Math.exp(-0.6*DT);}
+  }else{const k=Math.exp(-(p.charging||b.holder===p.id?3.2:1.4)*DT);p.vx*=k;p.vy*=k;}
   if(p.skill&&p.skill.type==='roulette'){const u=p.skill.t/p.skill.dur;p.vx=p.skill.dx*p.maxSpd*1.05*(1-u*0.4);p.vy=p.skill.dy*p.maxSpd*1.05*(1-u*0.4);}
   p.x+=p.vx*DT;p.y+=p.vy*DT;
   const sp=Math.hypot(p.vx,p.vy);
@@ -252,8 +252,18 @@ const SIM=(()=>{
   if(has){
    p.holdT+=DT;
    if(p.charging){
-    p.charge+=DT/0.78;
-    if(!inp.kick||p.charge>=1.2)shoot(s,p);
+    if(s.phase==='ft'){p.charge+=DT/0.78;if(!inp.kick||p.charge>=1.2)shoot(s,p);return;}
+    p.charge+=DT/0.6;
+    if(!p.jumped){
+     if(!inp.kick){ // amague: levanta la pelota como para tirar y se queda en el piso
+      p.charging=false;p.charge=0;p.fakeT=0.34;p.cool=0.22;p.protT=Math.max(p.protT,0.25);
+      s.events.push({t:'fake',id:p.id,team:p.team,x:p.x,y:p.y});return;}
+     if(p.charge>=0.233){p.jumped=true;p.jvz=p.jump*0.95;p.jz=0.01;s.events.push({t:'jump',id:p.id});}
+     return;
+    }
+    // ya saltó: no se puede mover; puede pasarla en el aire o soltar el tiro
+    if(passE||lobE){p.charging=false;p.charge=0;p.jumped=false;doPass(s,p,inp,lobE&&!passE);return;}
+    if(!inp.kick||p.charge>=1.2||(p.jz<=0&&p.jvz<=0))shoot(s,p);
     return;
    }
    if(air)return;
@@ -269,7 +279,7 @@ const SIM=(()=>{
     p.kickUsed=true;const hx=hoopX(s,p.team),d=Math.hypot(hx-p.x,p.y);
     const toward=sp>1.5&&((hx-p.x)*p.vx+(-p.y)*p.vy)/(d*sp)>0.35;
     if(d<2.3&&(toward||d<1.4)){drive(s,p,spr||sp>4.6);return;}
-    p.charging=true;p.charge=0;p.kind='kick';
+    p.charging=true;p.charge=0;p.kind='kick';p.jumped=false;p.vx*=0.4;p.vy*=0.4;
    }
   }else{
    p.charging=false;
@@ -361,9 +371,9 @@ const SIM=(()=>{
   const tq=timingOf(c),sp=shotProb(s,p,tq),foul=foulOn(s,p,sp),make=rnd(s)<sp.prob*(foul?0.55:1);
   const pts=sp.three?3:2;
   const [tx,ty,tz]=aimFor(s,p.team,make,tq);
-  p.jvz=p.jump*0.8;p.shootT=0.45;p.kickAnim=0.3;p.cool=0.4;
+  if(!p.jumped&&p.jz<=0.01)p.jvz=p.jump*0.8;p.jumped=false;p.shootT=0.45;p.kickAnim=0.3;p.cool=0.4;
   const T=0.55+sp.d*0.055;
-  launch(s,p,tx,ty,tz,T,2.15+0.2);
+  launch(s,p,tx,ty,tz,T,2.15+0.2+Math.min(0.5,p.jz*0.5));
   s.ball.shot={team:p.team,id:p.id,pts,make,t:0,T,done:false,dunk:false,lay:false,foul};
   s.events.push({t:'kick',shot:true,cont:sp.dd<0.75?48:sp.dd<1.25?26:sp.dd<2?10:0,id:p.id,team:p.team,x:p.x,y:p.y,pts,prob:sp.prob,perfect:tq>1.2,late:c>PERF[1]+0.1,power:10,vx:s.ball.vx,vy:s.ball.vy});
  }
@@ -639,6 +649,7 @@ const AI=(()=>{
    moveTo(inp,p,hx-dir*0.6,0,D.spd,false);if(toward>0.4||d<1.3){inp.kick=true;inp.sprint=dd>1.2;}return inp;}
   const sp=SIM.shotProb(s,p,1);
   if(p.holdT<0.05||!p.plan)p.plan=Math.random()<0.4+0.25*p.sh3?'jumper':'drive';
+  if(dd<1.5&&defFront&&p.cool<=0&&d<s.R3+2&&Math.random()<0.007){inp.kick=true;p.aiT=0.1;return inp;}
   const laneOpen=!defFront||dd>2.2;
   if(p.plan==='drive'&&!laneOpen&&p.holdT>1.2&&Math.random()<0.02)p.plan='jumper';
   const thr=p.plan==='drive'&&!urgent?0.9:urgent?0.05:(D.thr+(sp.three?-0.08:0)-(p.holdT>3.5?0.08:0));
@@ -728,7 +739,9 @@ const AI=(()=>{
   if(onBall){
    const d=Math.hypot(holder.x-p.x,holder.y-p.y);
    // salta a tapar cuando el tirador ya está armando el tiro
-   if(holder.charging&&holder.charge>0.35+D.react&&d<1.9&&p.jz===0&&p.cool<=0)inp.kick=true;
+   if(holder.charging&&holder.jumped&&holder.charge>0.35+D.react&&d<1.9&&p.jz===0&&p.cool<=0)inp.kick=true;
+   if(holder.fakeT>0.26&&d<2.3&&p.jz===0&&p.cool<=0&&!p.bit){p.bit=true;if(Math.random()<0.62-0.25*(p.def||0))inp.kick=true;}
+   if(!(holder.fakeT>0))p.bit=false;
    // manotazo para robar, de vez en cuando
    if(d<1.1&&p.swipeCd<=0&&Math.random()<0.008*D.steal*(holder.protT>0?0.2:1))inp.slide=true;
   }
@@ -3510,7 +3523,7 @@ function netSnap(s){
  const b=s.ball;
  const o={scl:r2(s.shotClock),m:NET.lastMid,k:s.tick,ph:s.phase,pt:r2(s.phaseT),c:r2(s.clock),g:s.golden?1:0,ot:r2(s.ot),sc:s.score.slice(),kt:s.kickoffTeam,lg:s.lastGoalTeam==null?-1:s.lastGoalTeam,
   b:[r2(b.x),r2(b.y),r2(b.z),r2(b.vx),r2(b.vy),r2(b.vz),b.holder,r2(b.roll),b.lastTouch,b.lastTeam],
-  p:s.players.map(p=>[r2(p.x),r2(p.y),r2(p.face),r2(p.run%1000),r2(p.vx),r2(p.vy),null,0,r2(p.kickAnim),0,1,r2(p.stunT),r2(p.charge),p.charging?1:0,r2(p.stam),p.skill?[p.skill.type,r2(p.skill.t),r2(p.skill.dur),0]:0,0,r2(p.jz),r2(p.shootT),r2(p.swipeT),r2(p.dunkT),p.pressing?1:0,p.fire?1:0]),
+  p:s.players.map(p=>[r2(p.x),r2(p.y),r2(p.face),r2(p.run%1000),r2(p.vx),r2(p.vy),null,0,r2(p.kickAnim),0,1,r2(p.stunT),r2(p.charge),p.charging?1:0,r2(p.stam),p.skill?[p.skill.type,r2(p.skill.t),r2(p.skill.dur),0]:0,0,r2(p.jz),r2(p.shootT),r2(p.swipeT),r2(p.dunkT),p.pressing?1:0,p.fire?1:0,r2(p.fakeT||0)]),
   q:s.players.map(p=>{const c=game.ctrls[p.id];return c&&c.peer&&c.peer!==NET.me?((NET.ack&&NET.ack[c.peer])|0):0;}),
   e:NET.evBuf.slice()};
  if(s.phase==='end')o.scr=s.scorers.slice(-12).map(x=>({name:String(x.name).slice(0,30),team:x.team,own:!!x.own,t:r2(x.t),golden:!!x.golden}));
@@ -3531,7 +3544,7 @@ function netApply(a,b,u){
  bb.x=A[0]+(B[0]-A[0])*bl;bb.y=A[1]+(B[1]-A[1])*bl;bb.z=A[2]+(B[2]-A[2])*bl;bb.vx=B[3];bb.vy=B[4];bb.vz=B[5];bb.holder=B[6];bb.roll=B[7];if(B[8]!=null){bb.lastTouch=B[8];bb.lastTeam=B[9];}
  s.players.forEach((p,i)=>{const P=a.p[i],Q=b.p[i];if(!P||!Q)return;const t=Math.hypot(Q[0]-P[0],Q[1]-P[1])>3?1:u;
   p.x=P[0]+(Q[0]-P[0])*t;p.y=P[1]+(Q[1]-P[1])*t;p.face=Q[2];p.run=L(P[3],Q[3]);p.vx=Q[4];p.vy=Q[5];p.dive=Q[6]==null?null:{dy:Q[6]};p.diveT=Q[7];p.kickAnim=Q[8];p.slideT=Q[9];p.slideDx=Q[10];p.stunT=Q[11];
-  p.charge=Q[12];p.charging=!!Q[13];p.stam=Q[14];p.jz=Q[17]||0;p.shootT=Q[18]||0;p.swipeT=Q[19]||0;p.dunkT=Q[20]||0;p.pressing=!!Q[21];p.fire=!!Q[22];p.skill=Q[15]?{type:Q[15][0],t:Q[15][1],dur:Q[15][2],burst:!!Q[15][3]}:null;p.kind=Q[16]?'lob':'kick';});
+  p.charge=Q[12];p.charging=!!Q[13];p.stam=Q[14];p.jz=Q[17]||0;p.shootT=Q[18]||0;p.swipeT=Q[19]||0;p.dunkT=Q[20]||0;p.pressing=!!Q[21];p.fire=!!Q[22];p.fakeT=Q[23]||0;p.skill=Q[15]?{type:Q[15][0],t:Q[15][1],dur:Q[15][2],burst:!!Q[15][3]}:null;p.kind=Q[16]?'lob':'kick';});
 }
 function netClient(dt){
  NET.lastDt=Math.min(0.1,dt||1/60);netSendInput();
@@ -4183,15 +4196,16 @@ function sfx(e){
   case'block':tone(170,80,0.14,'square',0.12);noise(0.06,0.12,800);break;
   case'whistle':tone(2100,2050,0.18,'triangle',0.09);break;
   case'skill':noise(0.1,0.08,2200);break;
+  case'fake':noise(0.05,0.06,1500);break;
   case'shotclock':tone(220,220,0.6,'sawtooth',0.07);break;
   case'goal':noise(0.3,0.18,3200);setTimeout(()=>{tone(523,523,0.12,'square',0.06);setTimeout(()=>tone(784,784,0.25,'square',0.06),120);},120);break;
   case'end':tone(220,220,1.0,'sawtooth',0.08);break;
  }
 }
 function hintText(){
- if(!touch.on&&setup.mouse!==false&&setup.sides.some(sd=>sd.ctrl==='P1'))return'P1: WASD · mouse: click izquierdo tirar (soltá en verde) / saltar · click derecho pase al compañero que señalás · E alley-oop · Q robar · R giro · Shift turbo   |   Esc pausa · M sonido';
+ if(!touch.on&&setup.mouse!==false&&setup.sides.some(sd=>sd.ctrl==='P1'))return'P1: WASD · mouse: click izquierdo: tocá = amague · mantené = saltás y soltás en verde para tirar (en el aire solo tirás o pasás) · click derecho pase al compañero que señalás · E alley-oop · Q robar · R giro · Shift turbo   |   Esc pausa · M sonido';
  if(touch.on&&setup.sides.some(sd=>sd.ctrl==='P1'))return'Joystick para moverte · TIRAR: mantené y soltá en la zona verde · PASE · ROBAR · GIRO · cerca del aro, TIRAR corriendo = bandeja o volcada';
- const h=[];setup.sides.forEach(sd=>{if(sd.ctrl==='P1')h.push('P1: WASD · Espacio tirar (soltá en verde) / saltar · F pase (mantené: marcar) · E alley-oop · Q robar · R giro · Shift turbo'+(setup.swap&&setup.swap!=='no'?' · C cambio':''));if(sd.ctrl==='P2')h.push('P2: Flechas · Enter tirar · Ñ pase · Shift der alley · Ctrl der robar'+(setup.swap&&setup.swap!=='no'?' · coma cambio':''));});
+ const h=[];setup.sides.forEach(sd=>{if(sd.ctrl==='P1')h.push('P1: WASD · Espacio: tocá = amague · mantené = salto y tiro (soltá en verde; en el aire solo tirás o pasás) · F pase (mantené: marcar) · E alley-oop · Q robar · R giro · Shift turbo'+(setup.swap&&setup.swap!=='no'?' · C cambio':''));if(sd.ctrl==='P2')h.push('P2: Flechas · Enter tirar · Ñ pase · Shift der alley · Ctrl der robar'+(setup.swap&&setup.swap!=='no'?' · coma cambio':''));});
  h.push('Esc pausa · M sonido');return h.join('   |   ');
 }
 function updateHUD(){
@@ -4239,6 +4253,7 @@ function handleEvents(){
    case'rebound':st.fouls[e.team]++;ps(e.id).r++;if(e.off)popup('REBOTE',e.x,e.y,'#f3f0e2');break;
    case'shotclock':banner('POSESIÓN',`Se terminaron los ${SIM.SC} segundos`,1.4);break;
    case'skill':popup('¡GIRO!',e.x,e.y,'#ffe14d');break;
+   case'fake':popup('¡AMAGUE!',e.x,e.y,'#9be7ff');break;
    case'foul':{const q=s.players[e.id];st.fl=st.fl||[0,0];st.fl[e.team]++;popup('¡FALTA!',e.x,e.y,'#ff5a4f');if(!e.shooting)popup(q?q.name:'',e.x,e.y+0.8,'#ffb3a8');break;}
    case'freethrow':{const q=s.players[e.id],hum=game.ctrls[e.id]&&game.ctrls[e.id].type==='human';banner(e.n===1?'TIRO LIBRE':e.n+' TIROS LIBRES',(q?q.name+' · ':'')+(hum?(touch.on?'Mantené TIRAR y soltá en verde':'Mantené tirar y soltá en verde'):game.teams[e.team].abbr),1.8);break;}
    case'fire':{const q=s.players[e.id];banner('¡EN LLAMAS!',q.name+' metió 3 seguidas',1.6);crowdEvent('goal',e.team);fx.flash=0.4;break;}
@@ -4597,7 +4612,7 @@ function k2Arena(g,s,t,cheer){
 }
 
 // dónde se dibuja la pelota: al picar se corre un poco hacia el costado de la mano (así se ve desde atrás)
-function k2BallPos(s){const b=s.ball;if(b.holder>=0&&!b.shot){const h=s.players[b.holder];if(!h.charging&&!(h.shootT>0)&&!(h.dunkT>0)&&!(h.hangT>0)&&!(h.jz>0.12)){const sg=Math.sign(h.handS||h.hand||1)||1,fx=Math.cos(h.face),fy=Math.sin(h.face);return[b.x-fy*0.2*sg,b.y+fx*0.2*sg,b.z];}}return[b.x,b.y,b.z];}
+function k2BallPos(s){const b=s.ball;if(b.holder>=0&&!b.shot){const h=s.players[b.holder];if(!h.charging&&!(h.fakeT>0)&&!(h.shootT>0)&&!(h.dunkT>0)&&!(h.hangT>0)&&!(h.jz>0.12)){const sg=Math.sign(h.handS||h.hand||1)||1,fx=Math.cos(h.face),fy=Math.sin(h.face);return[b.x-fy*0.2*sg,b.y+fx*0.2*sg,b.z];}}return[b.x,b.y,b.z];}
 /* ---------- jugadores con esqueleto 3D ----------
    unidades: el jugador mide 24 (2 m). Cada articulación es [lateral(+derecha), adelante, arriba]. */
 const K2B={hipL:[-1.3,0,11],hipR:[1.3,0,11],kneeL:[-1.45,0.3,6],kneeR:[1.45,0.3,6],footL:[-1.55,0,0.6],footR:[1.55,0,0.6],
@@ -4625,7 +4640,7 @@ function k2Pose(p,s,t){
  // brazos según la jugada
  if(p.hangT>0){arm('L',[-1.9,0.4,23.6],[-1.0,0.7,27.2]);arm('R',[1.9,0.4,23.6],[1.0,0.7,27.2]);}
  else if(p.dunkT>0){arm('R',[1.6,1.3,22.6],[1.0,2.2,26.6]);arm('L',[-3.0,-0.6,15.6],[-3.6,-1.2,13.0]);}
- else if(p.charging||p.shootT>0.12||air){
+ else if(p.charging||p.fakeT>0||p.shootT>0.12||air){
   if(p.shootT>0&&!p.charging&&!hasB){arm('R',[1.4,1.8,22.8],[0.8,2.8,26.0]);arm('L',[-2.0,1.2,21.6],[-1.5,1.6,24.0]);}
   else{arm('L',[-2.2,1.0,21.0],[-1.0,1.4,23.6]);arm('R',[2.2,1.0,21.0],[1.0,1.4,23.8]);}}
  else if(p.swipeT>0){arm('R',[2.6,2.2,15.6],[2.0,4.8,14.0]);}
