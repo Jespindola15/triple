@@ -256,9 +256,9 @@ const SIM=(()=>{
     p.charge+=DT/0.6;
     if(!p.jumped){
      if(!inp.kick){ // amague: levanta la pelota como para tirar y se queda en el piso
-      p.charging=false;p.charge=0;p.fakeT=0.34;p.cool=0.22;p.protT=Math.max(p.protT,0.25);
+      p.charging=false;p.charge=0;p.fakeT=0.45;p.cool=0.22;p.protT=Math.max(p.protT,0.25);
       s.events.push({t:'fake',id:p.id,team:p.team,x:p.x,y:p.y});return;}
-     if(p.charge>=0.233){p.jumped=true;p.jvz=p.jump*0.95;p.jz=0.01;s.events.push({t:'jump',id:p.id});}
+     if(p.charge>=0.34){p.jumped=true;p.jvz=p.jump*0.95;p.jz=0.01;s.events.push({t:'jump',id:p.id});}
      return;
     }
     // ya saltó: no se puede mover; puede pasarla en el aire o soltar el tiro
@@ -740,7 +740,7 @@ const AI=(()=>{
    const d=Math.hypot(holder.x-p.x,holder.y-p.y);
    // salta a tapar cuando el tirador ya está armando el tiro
    if(holder.charging&&holder.jumped&&holder.charge>0.35+D.react&&d<1.9&&p.jz===0&&p.cool<=0)inp.kick=true;
-   if(holder.fakeT>0.26&&d<2.3&&p.jz===0&&p.cool<=0&&!p.bit){p.bit=true;if(Math.random()<0.62-0.25*(p.def||0))inp.kick=true;}
+   if(holder.fakeT>0.37&&d<2.3&&p.jz===0&&p.cool<=0&&!p.bit){p.bit=true;if(Math.random()<0.62-0.25*(p.def||0))inp.kick=true;}
    if(!(holder.fakeT>0))p.bit=false;
    // manotazo para robar, de vez en cuando
    if(d<1.1&&p.swipeCd<=0&&Math.random()<0.008*D.steal*(holder.protT>0?0.2:1))inp.slide=true;
